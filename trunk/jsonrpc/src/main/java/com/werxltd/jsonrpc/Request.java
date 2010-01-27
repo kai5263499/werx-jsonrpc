@@ -1,6 +1,5 @@
 package com.werxltd.jsonrpc;
 
-import java.util.HashMap;
 import java.util.Iterator;
 
 import org.json.JSONArray;
@@ -83,12 +82,6 @@ public class Request {
 
 				setParamtype(ParamType.ARRAY);
 
-				// System.out.println("param_count: "+param_count);
-
-				/*
-				 * for (int i = 0; i < param_count; i++) { params.put(i,
-				 * paramArr.get(i)); param_keys[i] = String.valueOf(i); }
-				 */
 				return true;
 			} catch (JSONException jae) {
 				setParamtype(ParamType.NONE);

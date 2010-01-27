@@ -10,11 +10,11 @@ import java.util.Iterator;
 
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
-import javax.servlet.ServletInputStream;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import org.apache.log4j.Logger;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -27,7 +27,12 @@ import org.json.JSONObject;
  */
 @SuppressWarnings("serial")
 public class RPC extends HttpServlet {
-
+	protected final static Logger LOG = Logger.getLogger(RPC.class);
+	
+	private boolean PERSIST_CLASS = true;
+	private boolean EXPOSE_METHODS = true;
+	private boolean DETAILED_ERRORS = true;
+	
 	private Response response;
 	private Request request;
 
@@ -61,6 +66,10 @@ public class RPC extends HttpServlet {
 			String classnames[] = config.getInitParameter("rpcclasses")
 					.replaceAll("\\s*", "").split(",");
 
+			if(config.getInitParameter("expose_methods") != null) EXPOSE_METHODS = config.getInitParameter("expose_methods").equalsIgnoreCase("true");
+			if(config.getInitParameter("detailed_errors") != null) DETAILED_ERRORS = config.getInitParameter("detailed_errors").equalsIgnoreCase("true");
+			if(config.getInitParameter("persist_class") != null)  PERSIST_CLASS = config.getInitParameter("persist_class").equalsIgnoreCase("true");
+			
 			if (classnames.length < 1)
 				throw new JSONRPCException("No RPC classes specified.");
 
@@ -83,7 +92,7 @@ public class RPC extends HttpServlet {
 					try {
 						rpcobjects.put(c.getName(), c.newInstance());
 					} catch (InstantiationException ie) {
-						System.out.println("Caught InstantiationException");
+						LOG.error("Caught InstantiationException");
 						continue;
 					}
 				}
@@ -100,7 +109,7 @@ public class RPC extends HttpServlet {
 						continue;
 
 					if (rpcmethods.containsKey(methodsig)) {
-						System.out.println("Skipping duplicate method name: ["
+						LOG.error("Skipping duplicate method name: ["
 								+ methodsig + "]");
 						continue;
 					}
@@ -113,9 +122,9 @@ public class RPC extends HttpServlet {
 
 			Class<?> rpcclass = this.getClass();
 			Method infoMethod = rpcclass
-					.getMethod("getInfo", (Class<?>[]) null);
-			rpcmethods.put("getInfo:0", infoMethod);
-			rpcobjects.put("getInfo", this);
+					.getMethod("listrpcmethods", (Class<?>[]) null);
+			rpcmethods.put("listrpcmethods:0", infoMethod);
+			rpcobjects.put("listrpcmethods", this);
 
 		} catch (Exception e) {
 			e.printStackTrace();
@@ -157,7 +166,7 @@ public class RPC extends HttpServlet {
 	 * @return JSONObject Containing available method information.
 	 * @throws JSONException
 	 */
-	public JSONObject getInfo() throws JSONException {
+	public JSONObject listrpcmethods() throws JSONException {
 		JSONObject result = new JSONObject();
 		Iterator<String> iterator = rpcmethods.keySet().iterator();
 		while (iterator.hasNext()) {
@@ -197,8 +206,23 @@ public class RPC extends HttpServlet {
 	 */
 	private void handleException(Exception e) throws JSONException {
 		response = new Response(e);
+		if (!DETAILED_ERRORS)
+			response.clearErrorData();
 	}
 
+	/**
+	 * This method attempts to take a Throwable object and turn it into a 
+	 * valid JSONRPC error.
+	 * 
+	 * @param t
+	 * @throws JSONException
+	 */
+	private void handleException(Throwable t) throws JSONException {
+		response = new Response(t);
+		if (!DETAILED_ERRORS)
+			response.clearErrorData();
+	}
+	
 	/**
 	 * Unified method for outputting the internal jsonresponse (error or not).
 	 * Method checks for a "debug" parameter and, if it is set to "true", prints
@@ -211,13 +235,21 @@ public class RPC extends HttpServlet {
 	 */
 	private void writeResponse(HttpServletRequest req, HttpServletResponse res)
 			throws IOException, JSONException {
+		String jsonStr = "";
+		
 		res.setContentType("text/plain");
+		
 		PrintWriter writer = res.getWriter();
 		if (req.getParameter("debug") != null
 				&& req.getParameter("debug").matches("true"))
-			writer.println(response.getJSONString(2));
+			jsonStr = response.getJSONString(2);
 		else
-			writer.println(response.getJSONString());
+			jsonStr = response.getJSONString();
+		
+		if(req.getParameter("callback") != null) {
+			if(req.getParameter("callback").matches("\\?")) writer.println("("+jsonStr+")");
+			else writer.println(req.getParameter("callback")+"("+jsonStr+")");
+		} else writer.println(jsonStr);
 	}
 
 	/**
@@ -225,12 +257,6 @@ public class RPC extends HttpServlet {
 	 */
 	public void doPost(HttpServletRequest req, HttpServletResponse res)
 			throws ServletException {
-		try {
-			System.out.println(req.getInputStream().toString());
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
 		doGet(req, res);
 	}
 
@@ -300,12 +326,11 @@ public class RPC extends HttpServlet {
 				method = req.getParameter("method");
 				request.setMethod(method);
 			} else {
-				response.setResult(getInfo());
+				if(EXPOSE_METHODS) response.setResult(listrpcmethods());
+				else throw new JSONRPCException("Unspecified JSON-RPC method.", -32600);
 				return;
 			}
 		}
-
-		// System.out.println("Method: [" + method + "]");
 
 		if (request.getParamtype() == Request.ParamType.NONE) {
 			if (req.getParameter("params") != null) {
@@ -366,22 +391,31 @@ public class RPC extends HttpServlet {
 					+ param_count + " parameters not found.", -32601);
 		}
 
-		Object obj = rpcobjects.get(m.getDeclaringClass().getName());
-
+		try {
+			result = runMethod(m, param_count, methparams);
+		} catch (InvocationTargetException ite) {
+			if(ite.getCause() != null) handleException(ite.getCause());
+			else throw ite;
+		}
+		response.setResult(result);
+	}
+	
+	private Object runMethod(Method m, int param_count, Object[] methparams) throws IllegalArgumentException, IllegalAccessException, InvocationTargetException {
 		int modifiers = m.getModifiers();
-
+		Object result = new Object();
 		if (Modifier.isStatic(modifiers)) {
 			if (param_count > 0)
 				result = (Object) m.invoke(null, methparams);
 			else
 				result = (Object) m.invoke(null);
 		} else {
+			Object obj = rpcobjects.get(m.getDeclaringClass().getName());
 			if (param_count > 0)
 				result = (Object) m.invoke(obj, methparams);
 			else
 				result = (Object) m.invoke(obj);
 		}
-
-		response.setResult(result);
+		
+		return result;
 	}
 }
