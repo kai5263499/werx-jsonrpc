@@ -143,7 +143,6 @@ public class Request {
 		if (paramtype == ParamType.NONE) {
 			return null;
 		} else if (paramtype == ParamType.OBJECT) {
-			System.out.println("return paramObj");
 			return paramObj;
 		} else if (paramtype == ParamType.ARRAY) {
 			return new JSONObject(paramArr);
