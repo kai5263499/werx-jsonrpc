@@ -8,7 +8,6 @@ import junit.framework.TestCase;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.mortbay.jetty.servlet.ServletHolder;
-import org.mortbay.jetty.testing.HttpTester;
 import org.mortbay.jetty.testing.ServletTester;
 
 public class RPCTest extends TestCase {
@@ -19,6 +18,8 @@ public class RPCTest extends TestCase {
 		tester.setContextPath("/");
 		ServletHolder sh = tester.addServlet(RPC.class, "/api");
 		sh.setInitParameter("rpcclasses", "com.werxltd.jsonrpc.Example");
+		sh.setInitParameter("expose_methods", "true");
+		sh.setInitParameter("detailed_errors", "true");
 		tester.start();
 	}
 
@@ -41,15 +42,11 @@ public class RPCTest extends TestCase {
 
 		String responses = tester.getResponses(requests);
 
-		System.out.println("Responses: " + responses);
-
 		String chunks[] = responses.split("\\r\\n");
 
 		checkHeader(chunks);
 
 		JSONObject jsonObj = new JSONObject(chunks[4]);
-
-		// System.out.println(jsonObj.toString(2));
 
 		assertNotNull(jsonObj);
 		assertTrue(jsonObj.has("jsonrpc"));
@@ -80,10 +77,6 @@ public class RPCTest extends TestCase {
 		String requests = "GET /api?json="
 				+ URLEncoder.encode(requestObj.toString(), "UTF-8")
 				+ " HTTP/1.1\r\n" + "Host: tester\r\n" + "\r\n";
-		// String requests = "GET /api?method=invalidmethod HTTP/1.1\r\n" +
-		// "Host: tester\r\n" + "\r\n";
-
-		// System.out.println("Requests: ["+requests+"]");
 
 		String responses = tester.getResponses(requests);
 
@@ -91,11 +84,7 @@ public class RPCTest extends TestCase {
 
 		checkHeader(chunks);
 
-		// System.out.println("Responses: "+responses);
-
 		JSONObject jsonObj = new JSONObject(chunks[4]);
-
-		// System.out.println(jsonObj.toString(2));
 
 		assertNotNull(jsonObj);
 		assertTrue(jsonObj.has("jsonrpc"));
@@ -132,13 +121,9 @@ public class RPCTest extends TestCase {
 
 		checkHeader(chunks);
 
-		// System.out.println("Responses: "+responses);
-
 		JSONObject jsonObj = new JSONObject(chunks[4]);
 
 		assertNotNull(jsonObj);
-
-		// System.out.println(jsonObj.toString(2));
 
 		assertTrue(jsonObj.has("jsonrpc"));
 		assertEquals("2.0", jsonObj.getString("jsonrpc"));
@@ -160,13 +145,9 @@ public class RPCTest extends TestCase {
 
 		checkHeader(chunks);
 
-		// System.out.println("Responses: "+responses);
-
 		JSONObject jsonObj = new JSONObject(chunks[4]);
 
 		assertNotNull(jsonObj);
-
-		// System.out.println(jsonObj.toString(2));
 
 		assertTrue(jsonObj.has("jsonrpc"));
 		assertEquals("2.0", jsonObj.getString("jsonrpc"));
@@ -190,13 +171,9 @@ public class RPCTest extends TestCase {
 
 		checkHeader(chunks);
 
-		// System.out.println("Responses: "+responses);
-
 		JSONObject jsonObj = new JSONObject(chunks[4]);
 
 		assertNotNull(jsonObj);
-
-		// System.out.println(jsonObj.toString(2));
 
 		assertTrue(jsonObj.has("jsonrpc"));
 		assertEquals("2.0", jsonObj.getString("jsonrpc"));
@@ -220,13 +197,9 @@ public class RPCTest extends TestCase {
 
 		checkHeader(chunks);
 
-		// System.out.println("Responses: "+responses);
-
 		JSONObject jsonObj = new JSONObject(chunks[4]);
 
 		assertNotNull(jsonObj);
-
-		// System.out.println(jsonObj.toString(2));
 
 		assertTrue(jsonObj.has("jsonrpc"));
 		assertEquals("2.0", jsonObj.getString("jsonrpc"));
@@ -252,13 +225,9 @@ public class RPCTest extends TestCase {
 
 		checkHeader(chunks);
 
-		// System.out.println("Responses: "+responses);
-
 		JSONObject jsonObj = new JSONObject(chunks[4]);
 
 		assertNotNull(jsonObj);
-
-		// System.out.println(jsonObj.toString(2));
 
 		assertTrue(jsonObj.has("jsonrpc"));
 		assertEquals("2.0", jsonObj.getString("jsonrpc"));
@@ -285,13 +254,9 @@ public class RPCTest extends TestCase {
 
 		checkHeader(chunks);
 
-		// System.out.println("Responses: "+responses);
-
 		JSONObject jsonObj = new JSONObject(chunks[4]);
 
 		assertNotNull(jsonObj);
-
-		// System.out.println(jsonObj.toString(2));
 
 		assertTrue(jsonObj.has("jsonrpc"));
 		assertEquals("2.0", jsonObj.getString("jsonrpc"));
@@ -319,12 +284,8 @@ public class RPCTest extends TestCase {
 
 		checkHeader(chunks);
 
-		// System.out.println("Responses: "+responses);
-
 		JSONObject jsonObj = new JSONObject(chunks[4]);
 		assertNotNull(jsonObj);
-
-		// System.out.println(jsonObj.toString(2));
 
 		assertTrue(jsonObj.has("jsonrpc"));
 		assertEquals("2.0", jsonObj.getString("jsonrpc"));
@@ -356,12 +317,8 @@ public class RPCTest extends TestCase {
 
 		checkHeader(chunks);
 
-		// System.out.println("Responses: "+responses);
-
 		JSONObject jsonObj = new JSONObject(chunks[4]);
 		assertNotNull(jsonObj);
-
-		// System.out.println(jsonObj.toString(2));
 
 		assertTrue(jsonObj.has("jsonrpc"));
 		assertEquals("2.0", jsonObj.getString("jsonrpc"));

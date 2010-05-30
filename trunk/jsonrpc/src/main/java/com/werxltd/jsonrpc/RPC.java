@@ -5,8 +5,11 @@ import java.io.PrintWriter;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.sql.Date;
+import java.text.SimpleDateFormat;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.SimpleTimeZone;
 
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
@@ -29,9 +32,10 @@ import org.json.JSONObject;
 public class RPC extends HttpServlet {
 	protected final static Logger LOG = Logger.getLogger(RPC.class);
 	
-	private boolean PERSIST_CLASS = true;
-	private boolean EXPOSE_METHODS = true;
-	private boolean DETAILED_ERRORS = true;
+	private boolean PERSIST_CLASS		= true;
+	private boolean EXPOSE_METHODS		= false;
+	private boolean DETAILED_ERRORS 	= false;
+	private boolean USE_FULL_CLASSNAME	= false;
 	
 	private Response response;
 	private Request request;
@@ -66,9 +70,10 @@ public class RPC extends HttpServlet {
 			String classnames[] = config.getInitParameter("rpcclasses")
 					.replaceAll("\\s*", "").split(",");
 
-			if(config.getInitParameter("expose_methods") != null) EXPOSE_METHODS = config.getInitParameter("expose_methods").equalsIgnoreCase("true");
-			if(config.getInitParameter("detailed_errors") != null) DETAILED_ERRORS = config.getInitParameter("detailed_errors").equalsIgnoreCase("true");
-			if(config.getInitParameter("persist_class") != null)  PERSIST_CLASS = config.getInitParameter("persist_class").equalsIgnoreCase("true");
+			if(config.getInitParameter("expose_methods") != null) 		EXPOSE_METHODS = config.getInitParameter("expose_methods").equalsIgnoreCase("true");
+			if(config.getInitParameter("detailed_errors") != null)		DETAILED_ERRORS = config.getInitParameter("detailed_errors").equalsIgnoreCase("true");
+			if(config.getInitParameter("persist_class") != null)  		PERSIST_CLASS = config.getInitParameter("persist_class").equalsIgnoreCase("true");
+			if(config.getInitParameter("use_full_classname") != null)   USE_FULL_CLASSNAME = config.getInitParameter("use_full_classname").equalsIgnoreCase("true");
 			
 			if (classnames.length < 1)
 				throw new JSONRPCException("No RPC classes specified.");
@@ -90,7 +95,7 @@ public class RPC extends HttpServlet {
 
 				if (!Modifier.isStatic(classmodifiers)) {
 					try {
-						rpcobjects.put(c.getName(), c.newInstance());
+						if(PERSIST_CLASS) rpcobjects.put(c.getName(), c.newInstance());
 					} catch (InstantiationException ie) {
 						LOG.error("Caught InstantiationException");
 						continue;
@@ -113,6 +118,10 @@ public class RPC extends HttpServlet {
 								+ methodsig + "]");
 						continue;
 					}
+					
+					LOG.info("Adding method sig: ["
+							+ methodsig + "]");
+					
 					rpcmethods.put(methodsig, methods[i]);
 				}
 			}
@@ -127,7 +136,18 @@ public class RPC extends HttpServlet {
 			rpcobjects.put("listrpcmethods", this);
 
 		} catch (Exception e) {
-			e.printStackTrace();
+			long now = System.currentTimeMillis();
+			Date date = new Date(now);
+			
+			SimpleDateFormat sdf = new SimpleDateFormat();
+			sdf.setTimeZone(new SimpleTimeZone(0, "GMT"));
+			sdf.applyPattern("dd MMM yyyy HH:mm:ss z");
+			
+			LOG.error("Exception caught at ["+sdf.format(date)+"]");
+			LOG.error("Stack trace:");
+			LOG.error(e.getStackTrace());
+			//e.printStackTrace();
+			LOG.error("End exception code");
 		}
 	}
 
@@ -147,9 +167,14 @@ public class RPC extends HttpServlet {
 	private String generateMethodSignature(Method m) {
 		int parmscount = 0;
 		Class<?> paramclasses[] = m.getParameterTypes();
+		
+		String mname;
+		if(USE_FULL_CLASSNAME) mname = m.getDeclaringClass().getName()+"."+m.getName();
+		else mname = m.getName();
+		
 		for (int j = 0; j < paramclasses.length; j++) {
 			if (paramclasses[j].getName().matches("org.json.JSONObject")) {
-				return m.getName() + ":JSONObject";
+				return mname + ":JSONObject";
 			} else if (paramclasses[j].getName().matches("java.lang.String")
 					|| paramclasses[j].isPrimitive())
 				parmscount++;
@@ -157,7 +182,7 @@ public class RPC extends HttpServlet {
 				return null;
 		}
 
-		return m.getName() + ":" + parmscount;
+		return mname + ":" + parmscount;
 	}
 
 	/**
@@ -299,11 +324,13 @@ public class RPC extends HttpServlet {
 	 * @throws InvocationTargetException
 	 * @throws JSONRPCException
 	 * @throws ClassNotFoundException
+	 * @throws InstantiationException 
+	 * @throws IllegalArgumentException 
 	 */
 	private void handleRequest(HttpServletRequest req, HttpServletResponse res)
 			throws ServletException, IOException, JSONException,
 			IllegalAccessException, InvocationTargetException,
-			JSONRPCException, ClassNotFoundException {
+			JSONRPCException, ClassNotFoundException, IllegalArgumentException, InstantiationException {
 
 		response = new Response();
 		request = new Request();
@@ -353,7 +380,9 @@ public class RPC extends HttpServlet {
 		// parameters provided
 		int param_count = request.getParamCount();
 		String methodsig = method + ":" + param_count;
-
+		
+		System.out.println("looking for methodsig: "+methodsig);
+		
 		Object result = new Object();
 		Method m = null;
 
@@ -400,7 +429,7 @@ public class RPC extends HttpServlet {
 		response.setResult(result);
 	}
 	
-	private Object runMethod(Method m, int param_count, Object[] methparams) throws IllegalArgumentException, IllegalAccessException, InvocationTargetException {
+	private Object runMethod(Method m, int param_count, Object[] methparams) throws IllegalArgumentException, IllegalAccessException, InvocationTargetException, InstantiationException {
 		int modifiers = m.getModifiers();
 		Object result = new Object();
 		if (Modifier.isStatic(modifiers)) {
@@ -409,7 +438,14 @@ public class RPC extends HttpServlet {
 			else
 				result = (Object) m.invoke(null);
 		} else {
-			Object obj = rpcobjects.get(m.getDeclaringClass().getName());
+			Object obj;
+
+			if(PERSIST_CLASS)
+				obj = rpcobjects.get(m.getDeclaringClass().getName());
+			else
+				obj = m.getClass().newInstance();
+			
+			
 			if (param_count > 0)
 				result = (Object) m.invoke(obj, methparams);
 			else
