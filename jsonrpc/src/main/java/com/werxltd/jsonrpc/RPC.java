@@ -7,8 +7,10 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.sql.Date;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.SimpleTimeZone;
 
 import javax.servlet.ServletConfig;
@@ -21,6 +23,10 @@ import org.apache.log4j.Logger;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+
+import com.werxltd.jsonrpc.events.JSONRPCEventListener;
+import com.werxltd.jsonrpc.events.JSONRPCMessage;
+import com.werxltd.jsonrpc.events.JSONRPCMessageEvent;
 
 /**
  * This class creates a servlet which implements the JSON-RPC specification.
@@ -43,6 +49,8 @@ public class RPC extends HttpServlet {
 	private HashMap<String, Object> rpcobjects;
 	private HashMap<String, Method> rpcmethods;
 
+	private List<JSONRPCEventListener> listeners = new ArrayList<JSONRPCEventListener>();
+	
 	/**
 	 * This method reads the servlet configuration for a list of classes it
 	 * should scan for acceptable Method objects that can be called remotely.
@@ -95,7 +103,14 @@ public class RPC extends HttpServlet {
 
 				if (!Modifier.isStatic(classmodifiers)) {
 					try {
-						if(PERSIST_CLASS) rpcobjects.put(c.getName(), c.newInstance());
+						if(PERSIST_CLASS) {
+							Object obj = c.newInstance();
+							rpcobjects.put(c.getName(), obj);
+							
+							if(implementsRPCEventListener(c)) {
+								addMessageListener((JSONRPCEventListener) obj);
+							}
+						}
 					} catch (InstantiationException ie) {
 						LOG.error("Caught InstantiationException");
 						continue;
@@ -135,6 +150,9 @@ public class RPC extends HttpServlet {
 			rpcmethods.put("listrpcmethods:0", infoMethod);
 			rpcobjects.put("listrpcmethods", this);
 
+			JSONRPCMessage msg = generateMessage(JSONRPCMessage.INIT, null, null);
+			msg.setServletConfig(config);
+			fireMessageEvent(msg);
 		} catch (Exception e) {
 			long now = System.currentTimeMillis();
 			Date date = new Date(now);
@@ -146,11 +164,62 @@ public class RPC extends HttpServlet {
 			LOG.error("Exception caught at ["+sdf.format(date)+"]");
 			LOG.error("Stack trace:");
 			LOG.error(e.getStackTrace());
-			//e.printStackTrace();
 			LOG.error("End exception code");
 		}
 	}
 
+	/**
+	 * Adds a class that implements the JSONRPCEventListener interface to the internal
+	 * list of listeners
+	 * @param l
+	 */
+	public synchronized void addMessageListener( JSONRPCEventListener l ) {
+        listeners.add(l);
+    }
+    
+	/**
+	 * Removes a class that implements the JSONRPCEventListener interface from the 
+	 * internal list of listeners
+	 * @param l
+	 */
+    public synchronized void removeMessageListener( JSONRPCEventListener l ) {
+        listeners.remove(l);
+    }
+	
+    /**
+     * Walks through the listeners list, firing the messageRecieved method on
+     * all classes that implement the JSONRPCEventListener
+     * @param m
+     */
+    private synchronized void fireMessageEvent(JSONRPCMessage m) {
+    	LOG.info("Firing message with code: "+m.getCode());
+    	
+    	JSONRPCMessageEvent me = new JSONRPCMessageEvent(this, m);
+    	Iterator<JSONRPCEventListener> ilisteners = listeners.iterator();
+        while( ilisteners.hasNext() ) {
+            ilisteners.next().messageReceived(me);
+        }
+    }
+    
+    /**
+     * This method returns true or false depending on whether the supplied class implements JSONRPCEventListener or not
+     * @param c Class to test
+     * @return boolean indicating whether supplied class implements JSONRPCEventListener or not
+     */
+	private boolean implementsRPCEventListener(Class<?> c) {
+		Class<?>[] theInterfaces = c.getInterfaces();
+	    for (int i = 0; i < theInterfaces.length; i++) {
+
+	    	String interfaceName = theInterfaces[i].getName();
+	    	
+	    	LOG.info("Class: "+c.getName()+" implents interface: "+interfaceName);
+	    	
+	    	if(theInterfaces[i].equals(JSONRPCEventListener.class)) return true;
+	    }
+	    
+	    return false;
+	}
+	
 	/**
 	 * This method generates a string containing the "signature" of a
 	 * {@link java.util.Method} object in the form of methodname:paramcount or
@@ -195,8 +264,8 @@ public class RPC extends HttpServlet {
 		JSONObject result = new JSONObject();
 		Iterator<String> iterator = rpcmethods.keySet().iterator();
 		while (iterator.hasNext()) {
-			String methodsig = (String) iterator.next();
-			Method m = (Method) rpcmethods.get(methodsig);
+			String methodsig = iterator.next();
+			Method m = rpcmethods.get(methodsig);
 			int modifiers = m.getModifiers();
 			JSONObject methodObj = new JSONObject();
 			methodObj.put("name", m.getName());
@@ -233,6 +302,8 @@ public class RPC extends HttpServlet {
 		response = new Response(e);
 		if (!DETAILED_ERRORS)
 			response.clearErrorData();
+		
+		fireMessageEvent(generateMessage(JSONRPCMessage.EXCEPTION, null, null));
 	}
 
 	/**
@@ -246,6 +317,8 @@ public class RPC extends HttpServlet {
 		response = new Response(t);
 		if (!DETAILED_ERRORS)
 			response.clearErrorData();
+		
+		fireMessageEvent(generateMessage(JSONRPCMessage.EXCEPTION, null, null));
 	}
 	
 	/**
@@ -264,6 +337,8 @@ public class RPC extends HttpServlet {
 		
 		res.setContentType("text/plain");
 		
+		fireMessageEvent(generateMessage(JSONRPCMessage.BEFORERESPONSE, req, res));
+		
 		PrintWriter writer = res.getWriter();
 		if (req.getParameter("debug") != null
 				&& req.getParameter("debug").matches("true"))
@@ -275,9 +350,29 @@ public class RPC extends HttpServlet {
 			if(req.getParameter("callback").matches("\\?")) writer.println("("+jsonStr+")");
 			else writer.println(req.getParameter("callback")+"("+jsonStr+")");
 		} else writer.println(jsonStr);
+		
+		fireMessageEvent(generateMessage(JSONRPCMessage.AFTERRESPONSE, req, res));
 	}
 
 	/**
+	 * Method to generate a JSONRPCMessage, usually used in connection with a fireMessageEvent
+	 * @param code
+	 * @param req
+	 * @param res
+	 * @return JSONRPCMessage
+	 * @see fireMessageEvent
+	 */
+	private JSONRPCMessage generateMessage(int code,HttpServletRequest req, HttpServletResponse res) {
+		JSONRPCMessage msg = new JSONRPCMessage(code);
+		msg.setServletConfig(getServletConfig());
+		msg.setRequest(req);
+		msg.setHttpResponse(res);
+		msg.setRPCResponse(response);
+		return msg;
+	}
+	
+	/**
+	 * Forwards request to doGet method for consistency
 	 * @see doGet
 	 */
 	public void doPost(HttpServletRequest req, HttpServletResponse res)
@@ -290,6 +385,8 @@ public class RPC extends HttpServlet {
 	 */
 	public void doGet(HttpServletRequest req, HttpServletResponse res)
 			throws ServletException {
+		fireMessageEvent(generateMessage(JSONRPCMessage.BEFOREREQUEST, req, res));
+
 		try {
 			try {
 				handleRequest(req, res);
@@ -297,7 +394,7 @@ public class RPC extends HttpServlet {
 				e.printStackTrace();
 				handleException(e);
 			}
-
+			
 			writeResponse(req, res);
 		} catch (Exception e) {
 			e.printStackTrace();
@@ -306,6 +403,8 @@ public class RPC extends HttpServlet {
 			request = null;
 			response = null;
 		}
+		
+		fireMessageEvent(generateMessage(JSONRPCMessage.AFTERREQUEST, req, res));
 	}
 
 	/**
@@ -388,11 +487,11 @@ public class RPC extends HttpServlet {
 
 		Object methparams[] = null;
 		if (rpcmethods.containsKey(method + ":JSONObject")) {
-			m = (Method) rpcmethods.get(method + ":JSONObject");
+			m = rpcmethods.get(method + ":JSONObject");
 			methparams = new Object[1];
 			methparams[0] = request.getParamObj();
 		} else if (rpcmethods.containsKey(methodsig)) {
-			m = (Method) rpcmethods.get(methodsig);
+			m = rpcmethods.get(methodsig);
 			if (param_count > 0) {
 				methparams = new Object[param_count];
 				Class<?> paramtypes[] = m.getParameterTypes();

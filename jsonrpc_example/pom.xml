@@ -4,7 +4,7 @@
 	<groupId>com.werxltd</groupId>
 	<artifactId>jsonrpc_example</artifactId>
 	<packaging>war</packaging>
-	<version>0.9</version>
+	<version>1.0.0</version>
 	<name>jsonrpc_example</name>
 	<url>http://maven.apache.org</url>
     
@@ -46,7 +46,7 @@
 		<dependency>
             <groupId>com.werxltd</groupId>
             <artifactId>jsonrpc</artifactId>
-            <version>0.9.6</version>
+            <version>1.0.0</version>
         </dependency>
         <dependency>
             <groupId>org.json</groupId>
