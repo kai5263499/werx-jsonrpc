@@ -4,7 +4,7 @@
 	<groupId>com.werxltd</groupId>
 	<artifactId>jsonrpc</artifactId>
 	<packaging>jar</packaging>
-	<version>1.0.0</version>
+	<version>1.0.4</version>
 	<name>jsonrpc</name>
 	<url>http://maven.apache.org</url>
 
@@ -21,7 +21,7 @@
 		<repository>
 			<id>werxltd-scp</id>
 			<name>Werx Ltd. Maven Repository</name>
-			<url>scp://maven.werxltd.com/var/www/vhosts/werxltd.com/subdomains/maven/httpdocs/
+			<url>scp://maven.werxltd.com:20022/sites/maven.werxltd.com/
 			</url>
 		</repository>
 	</distributionManagement>
@@ -50,12 +50,6 @@
 			<groupId>org.json</groupId>
 			<artifactId>json</artifactId>
 			<version>20090211</version>
-		</dependency>
-		<!-- Might switch to this JSON implementation in the future -->
-		<dependency>
-			<groupId>com.googlecode.json-simple</groupId>
-			<artifactId>json-simple</artifactId>
-			<version>1.1</version>
 		</dependency>
 		<dependency>
 			<groupId>log4j</groupId>
@@ -88,14 +82,6 @@
 	</dependencies>
 
 	<build>
-		<extensions>
-			<!-- Enabling the use of FTP -->
-			<extension>
-				<groupId>org.apache.maven.wagon</groupId>
-				<artifactId>wagon-ftp</artifactId>
-				<version>1.0-beta-6</version>
-			</extension>
-		</extensions>
 		<resources>
 			<resource>
 				<directory>src/main/resources</directory>
