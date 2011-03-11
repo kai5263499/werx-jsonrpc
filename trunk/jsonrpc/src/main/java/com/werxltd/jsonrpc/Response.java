@@ -6,7 +6,8 @@ import org.json.JSONObject;
 public class Response {
 	private static final String jsonrpc = "2.0";
 	private String id;
-	private Object result;
+
+        private Object result;
 
 	private JSONObject response;
 
@@ -102,12 +103,11 @@ public class Response {
 	}
 
 	public String getJSONString() {
-		return response.toString();
+                return response.toString();
 	}
 
 	public String getJSONString(int i) {
 		try {
-
 			return response.toString(i);
 		} catch (JSONException e) {
 			e.printStackTrace();
