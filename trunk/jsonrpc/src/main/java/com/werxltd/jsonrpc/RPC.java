@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.SimpleTimeZone;
+import java.util.logging.Level;
 
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
@@ -27,6 +28,7 @@ import org.json.JSONObject;
 import com.werxltd.jsonrpc.events.JSONRPCEventListener;
 import com.werxltd.jsonrpc.events.JSONRPCMessage;
 import com.werxltd.jsonrpc.events.JSONRPCMessageEvent;
+import java.util.Enumeration;
 
 /**
  * This class creates a servlet which implements the JSON-RPC specification.
@@ -43,8 +45,8 @@ public class RPC extends HttpServlet {
 	private boolean DETAILED_ERRORS 	= false;
 	private boolean USE_FULL_CLASSNAME	= false;
 	
-	private Response response;
-	private Request request;
+	//private Response response;
+	//private Request request;
 
 	private HashMap<String, Object> rpcobjects;
 	private HashMap<String, Method> rpcmethods;
@@ -75,6 +77,7 @@ public class RPC extends HttpServlet {
 	 * @param config
 	 *            ServletConfig passed from container upon initialization
 	 */
+        @Override
 	public final void init(ServletConfig config) throws ServletException {
                 servletconfig = config;
 		try {
@@ -246,12 +249,14 @@ public class RPC extends HttpServlet {
 		
 		for (int j = 0; j < paramclasses.length; j++) {
 			if (paramclasses[j].getName().matches("org.json.JSONObject")) {
-				return mname + ":JSONObject";
+                            return mname + ":JSONObject";
+			} else if (paramclasses[j].getName().matches("java.util.HashMap")) {
+                            return mname + ":HashMap";
 			} else if (paramclasses[j].getName().matches("java.lang.String")
 					|| paramclasses[j].isPrimitive())
-				parmscount++;
+                            parmscount++;
 			else
-				return null;
+                            return null;
 		}
 
 		return mname + ":" + parmscount;
@@ -264,6 +269,7 @@ public class RPC extends HttpServlet {
 	 * @throws JSONException
 	 */
 	public JSONObject listrpcmethods() throws JSONException {
+                LOG.info("listing rpc methods");
 		JSONObject result = new JSONObject();
 		Iterator<String> iterator = rpcmethods.keySet().iterator();
 		while (iterator.hasNext()) {
@@ -301,12 +307,14 @@ public class RPC extends HttpServlet {
 	 *            exceptions, use JSONRPCExcepton class.
 	 * @throws JSONException
 	 */
-	private void handleException(Exception e) throws JSONException {
-		response = new Response(e);
+	private Response handleException(Exception e) throws JSONException {
+		Response response = new Response(e);
 		if (!DETAILED_ERRORS)
 			response.clearErrorData();
 		
 		fireMessageEvent(generateMessage(JSONRPCMessage.EXCEPTION, null, null));
+
+                return response;
 	}
 
 	/**
@@ -316,12 +324,14 @@ public class RPC extends HttpServlet {
 	 * @param t
 	 * @throws JSONException
 	 */
-	private void handleException(Throwable t) throws JSONException {
+	private Response handleException(Throwable t, Response response) throws JSONException {
 		response = new Response(t);
 		if (!DETAILED_ERRORS)
 			response.clearErrorData();
 		
 		fireMessageEvent(generateMessage(JSONRPCMessage.EXCEPTION, null, null));
+
+                return response;
 	}
 	
 	/**
@@ -334,13 +344,11 @@ public class RPC extends HttpServlet {
 	 * @throws IOException
 	 * @throws JSONException
 	 */
-	private void writeResponse(HttpServletRequest req, HttpServletResponse res)
+	private void writeResponse(HttpServletRequest req, HttpServletResponse res, Response response)
 			throws IOException, JSONException {
 		String jsonStr = "";
-		
-		res.setContentType("text/plain");
-		
-		fireMessageEvent(generateMessage(JSONRPCMessage.BEFORERESPONSE, req, res));
+
+                res.setContentType("text/plain");
 		
 		PrintWriter writer = res.getWriter();
 
@@ -354,8 +362,6 @@ public class RPC extends HttpServlet {
 			if(req.getParameter("callback").matches("\\?")) writer.println("("+jsonStr+")");
 			else writer.println(req.getParameter("callback")+"("+jsonStr+")");
 		} else writer.println(jsonStr);
-		
-		fireMessageEvent(generateMessage(JSONRPCMessage.AFTERRESPONSE, req, res));
 	}
 
 	/**
@@ -369,9 +375,7 @@ public class RPC extends HttpServlet {
 	private JSONRPCMessage generateMessage(int code,HttpServletRequest req, HttpServletResponse res) {
 		JSONRPCMessage msg = new JSONRPCMessage(code);
 		msg.setServletConfig(getServletConfig());
-		msg.setRequest(req);
-		msg.setHttpResponse(res);
-		msg.setRPCResponse(response);
+		//msg.setRPCResponse(response);
 		return msg;
 	}
 	
@@ -379,37 +383,67 @@ public class RPC extends HttpServlet {
 	 * Forwards request to doGet method for consistency
 	 * @see doGet
 	 */
+        @Override
 	public void doPost(HttpServletRequest req, HttpServletResponse res)
-			throws ServletException {
+			throws ServletException, IOException {
 		doGet(req, res);
 	}
 
 	/**
 	 * Called by servlet container when a request is made.
 	 */
+        @Override
 	public void doGet(HttpServletRequest req, HttpServletResponse res)
-			throws ServletException {
-		fireMessageEvent(generateMessage(JSONRPCMessage.BEFOREREQUEST, req, res));
+			throws ServletException, IOException {
+            
+                boolean handled = false;
+                res.setContentType("text/plain");
+                Response response = null;
+                try {
+                    response = handleRequest(req, res);
+                    handled = true;
+                } catch (Exception e) {
+                    try {
+                        response = handleException(e);
+                        handled = true;
+                    } catch (JSONException ex) {
+                        java.util.logging.Logger.getLogger(RPC.class.getName()).log(Level.SEVERE, null, ex);
+                    }
+                }
 
-		try {
-			try {
-				handleRequest(req, res);
-			} catch (Exception e) {
-				e.printStackTrace();
-				handleException(e);
-			}
-			
-			writeResponse(req, res);
-		} catch (Exception e) {
-			e.printStackTrace();
-			throw new ServletException(e.getMessage());
-		} finally {
-			request = null;
-			response = null;
-		}
-		
-		fireMessageEvent(generateMessage(JSONRPCMessage.AFTERREQUEST, req, res));
+                try {
+                    if(response != null) {
+                        writeResponse(req, res, response);
+                    }
+                } catch (JSONException ex) {
+                    java.util.logging.Logger.getLogger(RPC.class.getName()).log(Level.SEVERE, null, ex);
+                }
+
+                if(!handled) {
+                    PrintWriter writer = res.getWriter();
+                    writer.println("{\"error\":\"unrecoverable error\"}");
+                }
 	}
+
+        /**
+         * Converts HttpServletRequest POST/GET parameters into a HashMap
+         */
+
+        private HashMap reqParamsToHashMap(HttpServletRequest request) {
+            HashMap<String, Object> retmap = new HashMap();
+
+            Enumeration paramNames = request.getParameterNames();
+            while(paramNames.hasMoreElements()) {
+              String paramName = (String)paramNames.nextElement();
+              String paramValue = request.getParameter(paramName);
+
+              retmap.put(paramName, paramValue);
+            }
+
+            retmap.put("request", request);
+
+            return retmap;
+        }
 
 	/**
 	 * 
@@ -430,35 +464,40 @@ public class RPC extends HttpServlet {
 	 * @throws InstantiationException 
 	 * @throws IllegalArgumentException 
 	 */
-	private void handleRequest(HttpServletRequest req, HttpServletResponse res)
+	private Response handleRequest(HttpServletRequest req, HttpServletResponse res)
 			throws ServletException, IOException, JSONException,
 			IllegalAccessException, InvocationTargetException,
 			JSONRPCException, ClassNotFoundException, IllegalArgumentException, InstantiationException {
 
-		response = new Response();
-		request  = new Request();
-
+		Request  request  = new Request();
+                Response response = new Response();
+                
 		if (req.getParameter("json") != null) {
 			request.parseJSON(req.getParameter("json"));
 		} else if (req.getParameter("data") != null) {
 			request.parseJSON(req.getParameter("data"));
-		}
+		} else {
+
+                }
 
 		if (request.getId() == null) {
 			if (req.getParameter("id") != null) {
 				response.setId(req.getParameter("id"));
 			}
 		}
-		String method = request.getMethod();
 
-		if (method == null) {
+		String method = request.getMethod();
+                if (method == null) {
 			if (req.getParameter("method") != null) {
 				method = req.getParameter("method");
 				request.setMethod(method);
 			} else {
-				if(EXPOSE_METHODS) response.setResult(listrpcmethods());
-				else throw new JSONRPCException("Unspecified JSON-RPC method.", -32600);
-				return;
+				if(EXPOSE_METHODS) {
+                                    response.setResult(listrpcmethods());
+                                    return response;
+                                } else {
+                                    throw new JSONRPCException("Unspecified JSON-RPC method.", -32600);
+                                }
 			}
 		}
 
@@ -502,9 +541,25 @@ public class RPC extends HttpServlet {
                             }
                         }
 
+                        param_count = 1;
 			methparams = new Object[1];
 			methparams[0] = request.getParamObj();
-		} else if (rpcmethods.containsKey(methodsig)) {
+                } else if (rpcmethods.containsKey(method + ":HashMap")) {
+			m = rpcmethods.get(method + ":HashMap");
+
+                        if(m == null) {
+                            init(servletconfig);
+                            m = rpcmethods.get(method + ":HashMap");
+                            if(m == null) {
+                                throw new JSONRPCException("JSON-RPC method [" + method + "] with "
+					+ param_count + " parameters not found. Re-init attempted.", -32601);
+                            }
+                        }
+
+                        param_count = 1;
+			methparams = new Object[1];
+			methparams[0] = reqParamsToHashMap(req);
+                } else if (rpcmethods.containsKey(methodsig)) {
 			m = rpcmethods.get(methodsig);
 			if (param_count > 0) {
 				methparams = new Object[param_count];
@@ -533,13 +588,17 @@ public class RPC extends HttpServlet {
 					+ param_count + " parameters not found.", -32601);
 		}
 
+                System.out.println("running methodsig: "+methodsig+" param_count:"+param_count);
+
 		try {
 			result = runMethod(m, param_count, methparams);
 			response.setResult(result);
 		} catch (InvocationTargetException ite) {
-			if(ite.getCause() != null) handleException(ite.getCause());
+			if(ite.getCause() != null) response = handleException(ite.getCause(), response);
 			else throw ite;
 		}
+                
+                return response;
 	}
 	
 	private Object runMethod(Method m, int param_count, Object[] methparams) throws IllegalArgumentException, IllegalAccessException, InvocationTargetException, InstantiationException, ClassNotFoundException {

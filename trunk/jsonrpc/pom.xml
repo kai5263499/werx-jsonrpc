@@ -4,7 +4,7 @@
 	<groupId>com.werxltd</groupId>
 	<artifactId>jsonrpc</artifactId>
 	<packaging>jar</packaging>
-	<version>1.0.4</version>
+	<version>1.0.5</version>
 	<name>jsonrpc</name>
 	<url>http://maven.apache.org</url>
 
@@ -21,8 +21,7 @@
 		<repository>
 			<id>werxltd-scp</id>
 			<name>Werx Ltd. Maven Repository</name>
-			<url>scp://maven.werxltd.com:20022/sites/maven.werxltd.com/
-			</url>
+			<url>scp://maven.werxltd.com:20022/sites/maven.werxltd.com/</url>
 		</repository>
 	</distributionManagement>
 
