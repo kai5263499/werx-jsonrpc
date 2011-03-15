@@ -43,7 +43,7 @@ public class RPCNoInstanceTest extends TestCase {
 
 		String responses = tester.getResponses(requests);
 
-		String chunks[] = responses.split("\\r\\n");
+                String chunks[] = responses.split("\\r\\n");
 
 		checkHeader(chunks);
 
@@ -81,7 +81,7 @@ public class RPCNoInstanceTest extends TestCase {
 
 		String responses = tester.getResponses(requests);
 
-		String chunks[] = responses.split("\\r\\n");
+                String chunks[] = responses.split("\\r\\n");
 
 		checkHeader(chunks);
 
